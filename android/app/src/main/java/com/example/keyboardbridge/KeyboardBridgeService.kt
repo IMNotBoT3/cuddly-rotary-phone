@@ -188,20 +188,21 @@ class KeyboardBridgeService : InputMethodService() {
     private val advertiseCallback = object : AdvertiseCallback() {}
 
     private val gattCallback = object : BluetoothGattServerCallback() {
+
         override fun onCharacteristicWriteRequest(
-            device: BluetoothDevice?,
+            device: BluetoothDevice,
             requestId: Int,
-            characteristic: BluetoothGattCharacteristic?,
+            characteristic: BluetoothGattCharacteristic,
             preparedWrite: Boolean,
             responseNeeded: Boolean,
             offset: Int,
-            value: ByteArray?
+            value: ByteArray
         ) {
-            if (
-                characteristic?.uuid == BLE_CHARACTERISTIC_UUID &&
-                value != null
-            ) {
-                val command = String(value, StandardCharsets.UTF_8)
+            if (characteristic.uuid == BLE_CHARACTERISTIC_UUID) {
+                val command = String(
+                    value,
+                    StandardCharsets.UTF_8
+                )
 
                 runOnMainThread {
                     handleCommand(command)
@@ -217,7 +218,8 @@ class KeyboardBridgeService : InputMethodService() {
                         0,
                         null
                     )
-                } catch (_: Exception) { }
+                } catch (_: Exception) {
+                }
             }
         }
     }
