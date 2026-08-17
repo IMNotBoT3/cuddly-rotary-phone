@@ -240,6 +240,8 @@ class KeyboardBridgeService : InputMethodService() {
             }
 
             command == "K:ENTER" -> sendKey(KeyEvent.KEYCODE_ENTER)
+            command == "K:SHIFT_ENTER" ->
+                sendModifiedKey(KeyEvent.KEYCODE_ENTER, KeyEvent.META_SHIFT_ON)
             command == "K:BACKSPACE" -> sendKey(KeyEvent.KEYCODE_DEL)
             command == "K:TAB" -> sendKey(KeyEvent.KEYCODE_TAB)
 
@@ -270,6 +272,32 @@ class KeyboardBridgeService : InputMethodService() {
 
         currentInputConnection?.sendKeyEvent(
             KeyEvent(KeyEvent.ACTION_UP, keyCode)
+        )
+    }
+
+    private fun sendModifiedKey(keyCode: Int, metaState: Int) {
+        val now = android.os.SystemClock.uptimeMillis()
+
+        currentInputConnection?.sendKeyEvent(
+            KeyEvent(
+                now,
+                now,
+                KeyEvent.ACTION_DOWN,
+                keyCode,
+                0,
+                metaState
+            )
+        )
+
+        currentInputConnection?.sendKeyEvent(
+            KeyEvent(
+                now,
+                android.os.SystemClock.uptimeMillis(),
+                KeyEvent.ACTION_UP,
+                keyCode,
+                0,
+                metaState
+            )
         )
     }
 }

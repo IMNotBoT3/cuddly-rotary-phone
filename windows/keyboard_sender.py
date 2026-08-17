@@ -1,6 +1,6 @@
 import asyncio
 import socket
-import sys
+import threading
 from pynput import keyboard
 
 try:
@@ -11,14 +11,17 @@ except ImportError:
 
 BLE_SERVICE_UUID = "7c8a7e20-3b1f-4e55-9f36-4d83f54bf0c1"
 BLE_CHAR_UUID = "7c8a7e21-3b1f-4e55-9f36-4d83f54bf0c1"
-
 WIFI_PORT = 50505
 
 queue = None
 loop = None
 
+# Forwarding state. The local Windows keystroke is never suppressed.
+forwarding_enabled = True
+shift_down = False
+state_lock = threading.Lock()
+
 SPECIAL = {
-    keyboard.Key.enter: "K:ENTER",
     keyboard.Key.backspace: "K:BACKSPACE",
     keyboard.Key.tab: "K:TAB",
     keyboard.Key.left: "K:LEFT",
@@ -30,29 +33,109 @@ SPECIAL = {
     keyboard.Key.space: "T: ",
 }
 
+SHIFT_KEYS = {
+    keyboard.Key.shift,
+    keyboard.Key.shift_l,
+    keyboard.Key.shift_r,
+}
+
 def enqueue(command):
     if loop is not None:
         asyncio.run_coroutine_threadsafe(queue.put(command), loop)
 
+def set_forwarding(enabled):
+    global forwarding_enabled
+    with state_lock:
+        forwarding_enabled = enabled
+        state = "ON" if forwarding_enabled else "OFF"
+
+    print(f"\n[Phone forwarding: {state}]")
+    if forwarding_enabled:
+        print("Laptop keys are being mirrored to the phone.")
+    else:
+        print("Laptop-only mode. Press F8 to resume phone forwarding.")
+
+def toggle_forwarding():
+    with state_lock:
+        new_state = not forwarding_enabled
+    set_forwarding(new_state)
+
+def is_forwarding():
+    with state_lock:
+        return forwarding_enabled
+
 def on_press(key):
+    global shift_down
+
+    # Track Shift so Enter and Shift+Enter can behave differently.
+    if key in SHIFT_KEYS:
+        with state_lock:
+            shift_down = True
+        return
+
+    # F8 toggles phone forwarding without closing the connection.
+    if key == keyboard.Key.f8:
+        toggle_forwarding()
+        return
+
+    # ESC fully exits the bridge.
     if key == keyboard.Key.esc:
         enqueue("__QUIT__")
         return False
+
+    # When disabled, do not mirror anything to Android.
+    if not is_forwarding():
+        return
+
+    # Preserve Enter semantics.
+    if key == keyboard.Key.enter:
+        with state_lock:
+            shifted = shift_down
+
+        if shifted:
+            enqueue("K:SHIFT_ENTER")
+        else:
+            enqueue("K:ENTER")
+        return
 
     if key in SPECIAL:
         enqueue(SPECIAL[key])
         return
 
+    # pynput resolves printable keys, including Shift-modified characters,
+    # into key.char on common Windows keyboard layouts.
     try:
         if key.char:
             enqueue("T:" + key.char)
     except Exception:
         pass
 
+def on_release(key):
+    global shift_down
+    if key in SHIFT_KEYS:
+        with state_lock:
+            shift_down = False
+
 def start_listener():
-    listener = keyboard.Listener(on_press=on_press)
+    listener = keyboard.Listener(
+        on_press=on_press,
+        on_release=on_release,
+    )
     listener.start()
     return listener
+
+def print_controls():
+    print()
+    print("Controls")
+    print("--------")
+    print("F8          Toggle phone forwarding ON/OFF")
+    print("Enter       Normal Enter")
+    print("Shift+Enter Shift-modified Enter / new line in supported editors")
+    print("ESC         Disconnect and exit")
+    print()
+    print("Important: local Windows keystrokes are NOT suppressed.")
+    print("The bridge only mirrors them to Android while forwarding is ON.")
+    print()
 
 async def wifi_mode():
     ip = input("\nEnter the phone IP shown in the Android app: ").strip()
@@ -69,15 +152,14 @@ async def wifi_mode():
         print(f"\nWi-Fi connection failed: {e}")
         print("\nCheck:")
         print("  - Laptop and phone are on the same Wi-Fi")
-        print("  - The Android keyboard is selected")
+        print("  - Laptop Keyboard Bridge is selected as the Android keyboard")
         print("  - The displayed phone IP is correct")
-        print("  - Windows/phone firewall is not blocking local traffic")
+        print("  - Your Wi-Fi does not isolate devices from each other")
         return
 
     print("\nCONNECTED OVER WI-FI")
-    print("Tap a text field on the phone.")
-    print("Type on the laptop.")
-    print("Press ESC to disconnect.\n")
+    print_controls()
+    set_forwarding(True)
 
     listener = start_listener()
 
@@ -134,7 +216,7 @@ async def bluetooth_mode():
         print("\nCheck:")
         print("  - Bluetooth is enabled on both devices")
         print("  - Android app has Bluetooth permissions")
-        print("  - Laptop Keyboard Bridge is the selected Android keyboard")
+        print("  - Laptop Keyboard Bridge is selected as the Android keyboard")
         return
 
     print(f"Found: {phone.name or phone.address}")
@@ -147,9 +229,8 @@ async def bluetooth_mode():
                 return
 
             print("\nCONNECTED OVER BLUETOOTH")
-            print("Tap a text field on the phone.")
-            print("Type on the laptop.")
-            print("Press ESC to disconnect.\n")
+            print_controls()
+            set_forwarding(True)
 
             listener = start_listener()
 
@@ -182,7 +263,7 @@ async def main():
     queue = asyncio.Queue()
 
     print("===================================")
-    print("  Laptop Keyboard Bridge")
+    print("       Laptop Keyboard Bridge")
     print("===================================")
     print()
     print("1. Same Wi-Fi")
