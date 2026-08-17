@@ -17,7 +17,7 @@
 
     <application
         android:allowBackup="true"
-        android:label="Laptop Keyboard Bridge"
+        android:label="WiFiSync"
         android:theme="@style/AppTheme">
 
         <activity
@@ -32,7 +32,7 @@
         <service
             android:name=".KeyboardBridgeService"
             android:exported="true"
-            android:label="Laptop Keyboard Bridge"
+            android:label="WiFiSync"
             android:permission="android.permission.BIND_INPUT_METHOD">
             <intent-filter>
                 <action android:name="android.view.InputMethod" />

@@ -32,7 +32,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         val title = TextView(this).apply {
-            text = "Laptop Keyboard Bridge"
+            text = "WiFiSync"
             textSize = 25f
         }
 
@@ -73,7 +73,7 @@ class MainActivity : AppCompatActivity() {
                 Keep Bluetooth enabled on both devices.
                 The Windows program scans for the phone automatically.
 
-                For either mode, this Android keyboard must be enabled and selected.
+                For either mode, WiFiSync must be enabled and selected as the Android input method.
             """.trimIndent()
             textSize = 15f
             setPadding(0, 30, 0, 0)
@@ -107,7 +107,7 @@ class MainActivity : AppCompatActivity() {
             Port: ${KeyboardBridgeService.WIFI_PORT}
 
             Keyboard receiver starts when
-            "Laptop Keyboard Bridge" is selected.
+            "WiFiSync" is selected.
         """.trimIndent()
     }
 

@@ -1,2 +1,2 @@
-bleak>=0.22
-pynput>=1.7
+bleak>=0.22,<2
+pynput>=1.7,<2

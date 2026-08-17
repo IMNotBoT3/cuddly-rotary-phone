@@ -1,4 +1,4 @@
 @echo off
-title Laptop Keyboard Bridge
-python keyboard_sender.py
+title WiFiSync
+python wifisync.py
 pause
