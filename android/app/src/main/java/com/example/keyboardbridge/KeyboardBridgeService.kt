@@ -1,18 +1,30 @@
 package com.example.keyboardbridge
 
 import android.Manifest
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.bluetooth.*
 import android.bluetooth.le.AdvertiseCallback
 import android.bluetooth.le.AdvertiseData
 import android.bluetooth.le.AdvertiseSettings
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.inputmethodservice.InputMethodService
 import android.os.Build
 import android.os.ParcelUuid
 import android.view.KeyEvent
+import android.view.inputmethod.EditorInfo
+import android.widget.Toast
 import androidx.core.app.ActivityCompat
+import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
+import java.io.BufferedInputStream
 import java.io.BufferedReader
+import java.io.DataInputStream
+import java.io.File
+import java.io.FileOutputStream
 import java.io.InputStreamReader
 import java.net.ServerSocket
 import java.net.Socket
@@ -24,6 +36,22 @@ class KeyboardBridgeService : InputMethodService() {
 
     companion object {
         const val WIFI_PORT = 50505
+        const val WIFI_SCREENSHOT_PORT = 50506
+
+        private const val SCREENSHOT_CHANNEL_ID = "wifisync_screenshots"
+        private const val SCREENSHOT_NOTIFICATION_ID = 5001
+        private const val MAX_SCREENSHOT_BYTES = 30 * 1024 * 1024
+
+        private val PNG_SIGNATURE = byteArrayOf(
+            0x89.toByte(),
+            0x50,
+            0x4E,
+            0x47,
+            0x0D,
+            0x0A,
+            0x1A,
+            0x0A
+        )
 
         val BLE_SERVICE_UUID: UUID =
             UUID.fromString("7c8a7e20-3b1f-4e55-9f36-4d83f54bf0c1")
@@ -36,41 +64,58 @@ class KeyboardBridgeService : InputMethodService() {
     private var bluetoothAdapter: BluetoothAdapter? = null
     private var gattServer: BluetoothGattServer? = null
 
-    private var serverSocket: ServerSocket? = null
+    private var commandServerSocket: ServerSocket? = null
+    private var screenshotServerSocket: ServerSocket? = null
+
     private val wifiExecutor = Executors.newCachedThreadPool()
 
     override fun onCreate() {
         super.onCreate()
-        startWifiServer()
+
+        createScreenshotNotificationChannel()
+        startWifiServers()
         startBluetoothServer()
     }
 
     override fun onDestroy() {
-        stopWifiServer()
+        stopWifiServers()
         stopBluetoothServer()
         super.onDestroy()
     }
 
-    // -----------------------------
-    // Wi-Fi TCP server
-    // -----------------------------
+    // -------------------------------------------------
+    // Same-Wi-Fi receivers
+    // -------------------------------------------------
 
-    private fun startWifiServer() {
+    private fun startWifiServers() {
         wifiExecutor.execute {
             try {
-                serverSocket = ServerSocket(WIFI_PORT)
+                commandServerSocket = ServerSocket(WIFI_PORT)
 
-                while (!serverSocket!!.isClosed) {
-                    val client = serverSocket!!.accept()
-                    handleWifiClient(client)
+                while (commandServerSocket?.isClosed == false) {
+                    val client = commandServerSocket?.accept() ?: break
+                    handleKeyboardClient(client)
                 }
             } catch (_: Exception) {
-                // Service may be stopping or port may already be in use.
+                // Service may be stopping or port may already be occupied.
+            }
+        }
+
+        wifiExecutor.execute {
+            try {
+                screenshotServerSocket = ServerSocket(WIFI_SCREENSHOT_PORT)
+
+                while (screenshotServerSocket?.isClosed == false) {
+                    val client = screenshotServerSocket?.accept() ?: break
+                    handleScreenshotClient(client)
+                }
+            } catch (_: Exception) {
+                // Service may be stopping or port may already be occupied.
             }
         }
     }
 
-    private fun handleWifiClient(socket: Socket) {
+    private fun handleKeyboardClient(socket: Socket) {
         wifiExecutor.execute {
             try {
                 socket.use { client ->
@@ -83,27 +128,175 @@ class KeyboardBridgeService : InputMethodService() {
 
                     while (true) {
                         val line = reader.readLine() ?: break
+
                         runOnMainThread {
                             handleCommand(line)
                         }
                     }
                 }
-            } catch (_: Exception) { }
+            } catch (_: Exception) {
+            }
         }
     }
 
-    private fun stopWifiServer() {
-        try {
-            serverSocket?.close()
-        } catch (_: Exception) { }
+    private fun handleScreenshotClient(socket: Socket) {
+        wifiExecutor.execute {
+            try {
+                socket.use { client ->
+                    client.soTimeout = 15000
 
-        serverSocket = null
+                    val input = DataInputStream(
+                        BufferedInputStream(client.getInputStream())
+                    )
+
+                    val length = input.readInt()
+
+                    if (length <= PNG_SIGNATURE.size || length > MAX_SCREENSHOT_BYTES) {
+                        return@use
+                    }
+
+                    val firstBytes = ByteArray(PNG_SIGNATURE.size)
+                    input.readFully(firstBytes)
+
+                    if (!firstBytes.contentEquals(PNG_SIGNATURE)) {
+                        return@use
+                    }
+
+                    val outputFile = File(
+                        cacheDir,
+                        ScreenshotActivity.LATEST_SCREENSHOT_NAME
+                    )
+
+                    FileOutputStream(outputFile).use { output ->
+                        output.write(firstBytes)
+
+                        var remaining = length - firstBytes.size
+                        val buffer = ByteArray(64 * 1024)
+
+                        while (remaining > 0) {
+                            val count = input.read(
+                                buffer,
+                                0,
+                                minOf(buffer.size, remaining)
+                            )
+
+                            if (count < 0) {
+                                throw IllegalStateException(
+                                    "Screenshot connection closed before transfer completed."
+                                )
+                            }
+
+                            output.write(buffer, 0, count)
+                            remaining -= count
+                        }
+                    }
+
+                    client.getOutputStream().apply {
+                        write("OK\n".toByteArray(StandardCharsets.UTF_8))
+                        flush()
+                    }
+
+                    notifyScreenshotReceived()
+                }
+            } catch (_: Exception) {
+                runOnMainThread {
+                    Toast.makeText(
+                        this,
+                        "WiFiSync screenshot transfer failed.",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+        }
+    }
+
+    private fun stopWifiServers() {
+        try {
+            commandServerSocket?.close()
+        } catch (_: Exception) {
+        }
+
+        try {
+            screenshotServerSocket?.close()
+        } catch (_: Exception) {
+        }
+
+        commandServerSocket = null
+        screenshotServerSocket = null
         wifiExecutor.shutdownNow()
     }
 
-    // -----------------------------
-    // Bluetooth LE GATT server
-    // -----------------------------
+    // -------------------------------------------------
+    // Screenshot notification
+    // -------------------------------------------------
+
+    private fun createScreenshotNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                SCREENSHOT_CHANNEL_ID,
+                "WiFiSync screenshots",
+                NotificationManager.IMPORTANCE_DEFAULT
+            ).apply {
+                description = "Notifies when a screenshot arrives from WiFiSync."
+            }
+
+            val manager =
+                getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+            manager.createNotificationChannel(channel)
+        }
+    }
+
+    private fun notifyScreenshotReceived() {
+        val intent = Intent(
+            this,
+            ScreenshotActivity::class.java
+        )
+
+        val pendingIntent = PendingIntent.getActivity(
+            this,
+            0,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification = NotificationCompat.Builder(
+            this,
+            SCREENSHOT_CHANNEL_ID
+        )
+            .setSmallIcon(android.R.drawable.ic_menu_gallery)
+            .setContentTitle("WiFiSync screenshot received")
+            .setContentText("Tap to preview, save, or share the image.")
+            .setContentIntent(pendingIntent)
+            .setAutoCancel(true)
+            .build()
+
+        val notificationAllowed =
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                    ActivityCompat.checkSelfPermission(
+                        this,
+                        Manifest.permission.POST_NOTIFICATIONS
+                    ) == PackageManager.PERMISSION_GRANTED
+
+        if (notificationAllowed) {
+            NotificationManagerCompat.from(this).notify(
+                SCREENSHOT_NOTIFICATION_ID,
+                notification
+            )
+        } else {
+            runOnMainThread {
+                Toast.makeText(
+                    this,
+                    "WiFiSync screenshot received. Open WiFiSync to preview it.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+    }
+
+    // -------------------------------------------------
+    // Bluetooth LE keyboard receiver
+    // -------------------------------------------------
 
     private fun hasBtConnectPermission(): Boolean {
         return Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
@@ -163,8 +356,13 @@ class KeyboardBridgeService : InputMethodService() {
             .build()
 
         try {
-            advertiser.startAdvertising(settings, data, advertiseCallback)
-        } catch (_: Exception) { }
+            advertiser.startAdvertising(
+                settings,
+                data,
+                advertiseCallback
+            )
+        } catch (_: Exception) {
+        }
     }
 
     private fun stopBluetoothServer() {
@@ -173,19 +371,22 @@ class KeyboardBridgeService : InputMethodService() {
                 bluetoothAdapter
                     ?.bluetoothLeAdvertiser
                     ?.stopAdvertising(advertiseCallback)
-            } catch (_: Exception) { }
+            } catch (_: Exception) {
+            }
         }
 
         if (hasBtConnectPermission()) {
             try {
                 gattServer?.close()
-            } catch (_: Exception) { }
+            } catch (_: Exception) {
+            }
         }
 
         gattServer = null
     }
 
-    private val advertiseCallback = object : AdvertiseCallback() {}
+    private val advertiseCallback = object : AdvertiseCallback() {
+    }
 
     private val gattCallback = object : BluetoothGattServerCallback() {
 
@@ -224,9 +425,9 @@ class KeyboardBridgeService : InputMethodService() {
         }
     }
 
-    // -----------------------------
-    // Android keyboard input
-    // -----------------------------
+    // -------------------------------------------------
+    // Android input
+    // -------------------------------------------------
 
     private fun runOnMainThread(block: () -> Unit) {
         mainExecutor.execute(block)
@@ -239,11 +440,17 @@ class KeyboardBridgeService : InputMethodService() {
                 currentInputConnection?.commitText(text, 1)
             }
 
-            command == "K:ENTER" -> sendKey(KeyEvent.KEYCODE_ENTER)
+            command == "K:ENTER" ->
+                handleEnter()
+
             command == "K:SHIFT_ENTER" ->
-                sendModifiedKey(KeyEvent.KEYCODE_ENTER, KeyEvent.META_SHIFT_ON)
-            command == "K:BACKSPACE" -> sendKey(KeyEvent.KEYCODE_DEL)
-            command == "K:TAB" -> sendKey(KeyEvent.KEYCODE_TAB)
+                insertNewLine()
+
+            command == "K:BACKSPACE" ->
+                sendKey(KeyEvent.KEYCODE_DEL)
+
+            command == "K:TAB" ->
+                sendKey(KeyEvent.KEYCODE_TAB)
 
             command == "K:LEFT" ->
                 sendKey(KeyEvent.KEYCODE_DPAD_LEFT)
@@ -275,29 +482,35 @@ class KeyboardBridgeService : InputMethodService() {
         )
     }
 
-    private fun sendModifiedKey(keyCode: Int, metaState: Int) {
-        val now = android.os.SystemClock.uptimeMillis()
+    private fun handleEnter() {
+        val connection = currentInputConnection ?: return
+        val editorInfo = currentInputEditorInfo
 
-        currentInputConnection?.sendKeyEvent(
-            KeyEvent(
-                now,
-                now,
-                KeyEvent.ACTION_DOWN,
-                keyCode,
-                0,
-                metaState
-            )
-        )
+        val action = editorInfo?.imeOptions
+            ?.and(EditorInfo.IME_MASK_ACTION)
+            ?: EditorInfo.IME_ACTION_NONE
 
-        currentInputConnection?.sendKeyEvent(
-            KeyEvent(
-                now,
-                android.os.SystemClock.uptimeMillis(),
-                KeyEvent.ACTION_UP,
-                keyCode,
-                0,
-                metaState
-            )
-        )
+        when (action) {
+            EditorInfo.IME_ACTION_SEND,
+            EditorInfo.IME_ACTION_DONE,
+            EditorInfo.IME_ACTION_GO,
+            EditorInfo.IME_ACTION_SEARCH,
+            EditorInfo.IME_ACTION_NEXT,
+            EditorInfo.IME_ACTION_PREVIOUS -> {
+                if (!connection.performEditorAction(action)) {
+                    sendKey(KeyEvent.KEYCODE_ENTER)
+                }
+            }
+
+            else -> {
+                if (!connection.performEditorAction(EditorInfo.IME_ACTION_SEND)) {
+                    sendKey(KeyEvent.KEYCODE_ENTER)
+                }
+            }
+        }
+    }
+
+    private fun insertNewLine() {
+        currentInputConnection?.commitText("\n", 1)
     }
 }

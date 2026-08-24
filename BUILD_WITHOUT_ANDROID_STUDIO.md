@@ -1,20 +1,16 @@
-# Build WiFiSync without Android Studio
+# Build WiFiSync 5 without Android Studio
 
-WiFiSync uses GitHub Actions to build both the Android APK and Windows EXE.
-
-## Steps
-
-1. Upload this project to a GitHub repository.
-2. Open the repository's **Actions** tab.
+1. Upload this full project to GitHub.
+2. Open **Actions**.
 3. Select **Build WiFiSync Release**.
 4. Click **Run workflow**.
-5. Wait for both:
+5. Wait for both jobs:
    - Android APK
    - Windows EXE
-6. Download the two artifacts:
+6. Download:
    - `WiFiSync-Android-APK`
    - `WiFiSync-Windows`
 
-No Android Studio is required.
+The artifacts contain `WiFiSync.apk` and `WiFiSync.exe`.
 
-The Windows release artifact contains `WiFiSync.exe`, so Python is not required for ordinary use either.
+After installing the APK, allow notifications if you want screenshot-arrival notifications and select WiFiSync as the Android input method.

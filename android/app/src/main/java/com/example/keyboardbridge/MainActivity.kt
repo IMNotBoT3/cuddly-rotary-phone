@@ -15,15 +15,17 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
+import java.io.File
 
 class MainActivity : AppCompatActivity() {
 
     private val permissionRequestCode = 1001
     private lateinit var statusText: TextView
+    private lateinit var screenshotButton: Button
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        requestBluetoothPermissions()
+        requestRuntimePermissions()
 
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -47,14 +49,14 @@ class MainActivity : AppCompatActivity() {
         }
 
         val enableButton = Button(this).apply {
-            text = "Enable Keyboard"
+            text = "Enable WiFiSync Input"
             setOnClickListener {
                 startActivity(Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))
             }
         }
 
         val selectButton = Button(this).apply {
-            text = "Select Keyboard"
+            text = "Select WiFiSync Input"
             setOnClickListener {
                 val imm = getSystemService(INPUT_METHOD_SERVICE)
                         as android.view.inputmethod.InputMethodManager
@@ -62,18 +64,33 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        screenshotButton = Button(this).apply {
+            text = "Open Latest Screenshot"
+            setOnClickListener {
+                startActivity(Intent(this@MainActivity, ScreenshotActivity::class.java))
+            }
+        }
+
         val info = TextView(this).apply {
             text = """
                 SAME WI-FI:
                 Connect the laptop and phone to the same Wi-Fi.
-                Use the IP address shown above in the Windows program.
-                TCP port: ${KeyboardBridgeService.WIFI_PORT}
+                Keyboard port: ${KeyboardBridgeService.WIFI_PORT}
+                Screenshot port: ${KeyboardBridgeService.WIFI_SCREENSHOT_PORT}
 
-                BLUETOOTH:
-                Keep Bluetooth enabled on both devices.
-                The Windows program scans for the phone automatically.
+                WINDOWS HOTKEYS:
+                F8 = toggle phone keyboard forwarding
+                F9 = capture active window and send to phone
+                Shift+F9 = capture full desktop and send to phone
+                Esc = disconnect
 
-                For either mode, WiFiSync must be enabled and selected as the Android input method.
+                SCREENSHOTS:
+                Received screenshots are stored temporarily in WiFiSync.
+                Android shows a notification you can tap to preview,
+                save, or share using Android's normal Share sheet.
+
+                WiFiSync must be selected as the Android input method
+                for the local receivers to be active.
             """.trimIndent()
             textSize = 15f
             setPadding(0, 30, 0, 0)
@@ -84,6 +101,7 @@ class MainActivity : AppCompatActivity() {
         layout.addView(refreshButton)
         layout.addView(enableButton)
         layout.addView(selectButton)
+        layout.addView(screenshotButton)
         layout.addView(info)
 
         setContentView(layout)
@@ -102,34 +120,45 @@ class MainActivity : AppCompatActivity() {
         @Suppress("DEPRECATION")
         val ip = Formatter.formatIpAddress(wifiManager.connectionInfo.ipAddress)
 
+        val latest = File(cacheDir, ScreenshotActivity.LATEST_SCREENSHOT_NAME)
+
         statusText.text = """
             Wi-Fi IP: $ip
-            Port: ${KeyboardBridgeService.WIFI_PORT}
+            Keyboard port: ${KeyboardBridgeService.WIFI_PORT}
+            Screenshot port: ${KeyboardBridgeService.WIFI_SCREENSHOT_PORT}
 
-            Keyboard receiver starts when
-            "WiFiSync" is selected.
+            Latest screenshot: ${if (latest.exists()) "Available" else "None yet"}
+
+            Receivers start when WiFiSync is selected
+            as the active Android input method.
         """.trimIndent()
+
+        screenshotButton.isEnabled = latest.exists()
     }
 
-    private fun requestBluetoothPermissions() {
+    private fun requestRuntimePermissions() {
+        val permissions = mutableListOf<String>()
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val permissions = arrayOf(
-                Manifest.permission.BLUETOOTH_CONNECT,
-                Manifest.permission.BLUETOOTH_ADVERTISE
+            permissions.add(Manifest.permission.BLUETOOTH_CONNECT)
+            permissions.add(Manifest.permission.BLUETOOTH_ADVERTISE)
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+
+        val missing = permissions.filter {
+            ActivityCompat.checkSelfPermission(this, it) !=
+                    PackageManager.PERMISSION_GRANTED
+        }
+
+        if (missing.isNotEmpty()) {
+            ActivityCompat.requestPermissions(
+                this,
+                missing.toTypedArray(),
+                permissionRequestCode
             )
-
-            val missing = permissions.any {
-                ActivityCompat.checkSelfPermission(this, it) !=
-                        PackageManager.PERMISSION_GRANTED
-            }
-
-            if (missing) {
-                ActivityCompat.requestPermissions(
-                    this,
-                    permissions,
-                    permissionRequestCode
-                )
-            }
         }
     }
 }

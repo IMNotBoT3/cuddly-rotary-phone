@@ -1,45 +1,61 @@
-# WiFiSync
+# WiFiSync 6
 
-> Local cross-device connectivity utility for sending laptop keyboard input to an Android device over the same Wi-Fi network, with optional Bluetooth LE support.
+> Local Windows ↔ Android input and image-transfer utility over a trusted same-Wi-Fi network, with optional Bluetooth LE keyboard forwarding.
 
 ![Windows](https://img.shields.io/badge/Windows-WiFiSync.exe-0078D4?logo=windows&logoColor=white)
 ![Android](https://img.shields.io/badge/Android-WiFiSync.apk-3DDC84?logo=android&logoColor=white)
-![Wi-Fi](https://img.shields.io/badge/Primary-Same%20Wi--Fi-4A90E2)
-![Bluetooth](https://img.shields.io/badge/Optional-Bluetooth%20LE-0082FC?logo=bluetooth&logoColor=white)
+![Wi-Fi](https://img.shields.io/badge/Wi--Fi-TCP%2050505%20%2B%2050506-4A90E2)
+![Bluetooth](https://img.shields.io/badge/Keyboard-Bluetooth%20LE-0082FC?logo=bluetooth&logoColor=white)
 
-## Overview
+## What changed in v6
 
-WiFiSync links a Windows laptop and Android phone locally.
+WiFiSync now supports **user-triggered screenshot transfer** in Same-Wi-Fi mode.
+
+| Shortcut | Action |
+|---|---|
+| `F8` | Toggle **Laptop only ↔ Mirror to phone** |
+| `Enter` | Use Android editor action (Send/Done/Go/Search when supported) |
+| `Shift + Enter` | Insert a real newline without triggering Send |
+| `F9` | Capture the active Windows window and transfer it to Android |
+| `Shift + F9` | Capture the full Windows desktop and transfer it to Android |
+| `Esc` | Disconnect and exit |
+
+After a screenshot arrives, Android posts a **WiFiSync screenshot received** notification. Tap it to preview the image and choose **Share** or **Save a Copy**.
+
+The Windows client also reports screenshot success/failure through its normal tray/status notification.
+
+## Architecture
 
 ```text
-Physical laptop keyboard
-        |
-        v
-     Windows
-        |
-        +---- local Windows application
-        |
-        +---- WiFiSync
-                |
-                +---- Same Wi-Fi / TCP
-                |
-                +---- Bluetooth LE
-                        |
-                        v
-                  Android WiFiSync
-                        |
-                        v
-                Android InputMethodService
-                        |
-                        v
-                  Focused text field
+                    SAME WI-FI
+Windows                                   Android
+-------                                   -------
+
+Physical keyboard
+      |
+      +--> Windows application
+      |
+      +--> WiFiSync.exe -- TCP :50505 --> Android InputMethodService
+                                               |
+                                               +--> focused text field
+
+
+F9 / Shift+F9
+      |
+      +--> user-triggered screenshot
+      |
+      +--> WiFiSync.exe -- TCP :50506 --> temporary PNG
+                                               |
+                                               +--> Android notification
+                                                      |
+                                                      +--> Preview
+                                                      +--> Share
+                                                      +--> Save
 ```
 
-The Windows app remains a normal, visible user process. It does not install itself as a Windows service, impersonate Microsoft components, hide from Task Manager, or add anti-monitoring behavior.
+Screenshot transfer is intentionally supported over **Same Wi-Fi**, not BLE, because screenshots are much larger than keyboard events.
 
-## Branding
-
-Windows build metadata:
+## Windows identity
 
 ```text
 Product Name: WiFiSync
@@ -47,206 +63,216 @@ Executable: WiFiSync.exe
 File Description: Local Wi-Fi connectivity utility
 ```
 
-Android app label:
+WiFiSync remains a normal visible user application. It does not impersonate Windows/Microsoft components, hide its process, or contain monitoring-evasion behavior.
 
-```text
-WiFiSync
-```
+## Build without Android Studio
 
-The Android package ID is intentionally unchanged from earlier builds so an existing installation can be upgraded.
+Upload the entire project to GitHub and run:
 
-## Features
+**Actions → Build WiFiSync Release → Run workflow**
 
-- Same-Wi-Fi connection
-- Optional Bluetooth LE connection
-- `F8`: toggle phone forwarding
-- `Enter`: normal Android Enter key
-- `Shift + Enter`: Shift-modified Enter for editors that use it as a line break
-- `Esc`: disconnect and exit
-- Laptop keyboard remains locally usable
-- No Android Studio required
-- GitHub Actions builds both Windows and Android releases
-
-## Important input behavior
-
-### Forwarding ON
-
-```text
-Laptop key -> Windows
-           -> Android
-```
-
-This is a mirror mode.
-
-### Forwarding OFF
-
-```text
-Laptop key -> Windows only
-```
-
-Press `F8` to toggle between these states.
-
-WiFiSync does not globally suppress physical Windows keyboard input.
-
-## Build everything with GitHub Actions
-
-Upload the entire project to GitHub.
-
-Then:
-
-1. Open **Actions**.
-2. Select **Build WiFiSync Release**.
-3. Click **Run workflow**.
-4. Wait for both jobs to finish.
-
-Two artifacts will be produced:
+When both jobs succeed, download:
 
 ```text
 WiFiSync-Android-APK
 WiFiSync-Windows
 ```
 
-The first contains:
+The artifacts contain:
 
 ```text
 WiFiSync.apk
-```
-
-The second contains:
-
-```text
 WiFiSync.exe
 ```
 
-## Android installation
+## Android setup
 
-1. Download `WiFiSync-Android-APK`.
-2. Extract `WiFiSync.apk`.
-3. Copy it to the Android phone.
-4. Install it.
-5. Open **WiFiSync**.
-6. Tap **Enable Keyboard**.
-7. Enable **WiFiSync** in Android's input-method settings.
-8. Return to WiFiSync.
-9. Tap **Select Keyboard**.
-10. Select **WiFiSync**.
+1. Install the new `WiFiSync.apk`.
+2. Open WiFiSync.
+3. Allow Bluetooth permissions if you use Bluetooth mode.
+4. Allow notifications if you want screenshot-arrival notifications.
+5. Tap **Enable WiFiSync Input**.
+6. Enable WiFiSync in Android input-method settings.
+7. Return to WiFiSync.
+8. Tap **Select WiFiSync Input**.
+9. Select WiFiSync.
 
-## Windows installation
+The local TCP receivers run while WiFiSync is the selected Android input method.
 
-No Python installation is needed when using the release EXE.
-
-1. Download `WiFiSync-Windows`.
-2. Extract `WiFiSync.exe`.
-3. Run `WiFiSync.exe`.
-
-Windows may show a reputation warning because a GitHub-built executable is not code-signed with a commercial certificate. Only run a binary you built from source or otherwise trust.
-
-## Same-Wi-Fi mode
-
-Connect the laptop and phone to the same trusted local Wi-Fi.
-
-Android shows something similar to:
+The app shows:
 
 ```text
-Wi-Fi IP: 192.168.1.42
-Port: 50505
+Wi-Fi IP: 192.168.x.x
+Keyboard port: 50505
+Screenshot port: 50506
 ```
 
-Run `WiFiSync.exe`, select:
+## Windows setup
+
+Download and extract `WiFiSync.exe`.
+
+No Python installation is required for the release EXE.
+
+Start it and select:
 
 ```text
 1. Same Wi-Fi
 ```
 
-and enter the phone IP.
+Enter the phone IP displayed in the Android app.
 
-Controls after connection:
+Once connected, use the shortcuts listed above.
 
-| Key | Action |
-|---|---|
-| `F8` | Toggle Android forwarding ON/OFF |
-| `Enter` | Normal Enter |
-| `Shift + Enter` | Shift-modified Enter |
-| `Esc` | Disconnect and exit |
+A tray icon is also available with commands for:
 
-## Bluetooth mode
+- toggle phone forwarding
+- capture active window
+- capture full screen
+- exit
 
-1. Enable Bluetooth on both devices.
-2. Give the Android app its requested Bluetooth permissions.
-3. Select WiFiSync as the Android input method.
-4. Start `WiFiSync.exe`.
-5. Select Bluetooth mode.
+## Screenshot workflow
 
-The Windows client scans for the BLE service advertised by the Android input method.
+### Active window
 
-## Network security
-
-The current Wi-Fi protocol is intended for a trusted private LAN.
-
-It listens on TCP port:
+Press:
 
 ```text
-50505
+F9
 ```
 
-Do not expose that port to the public internet.
+WiFiSync captures the bounds of the current foreground Windows window, encodes it as PNG, and sends it to Android on TCP port `50506`.
 
-The current version does not yet include authenticated pairing or transport encryption. Avoid sensitive typing on untrusted/public networks.
+### Full desktop
 
-## Source layout
+Press:
 
 ```text
-.
-├── .github/
-│   └── workflows/
-│       └── build-wifisync-release.yml
-├── android/
-├── windows/
-│   ├── wifisync.py
-│   ├── requirements.txt
-│   ├── version_info.txt
-│   ├── wifisync.ico
-│   └── run.bat
-└── README.md
+Shift + F9
 ```
 
-## Development mode
+WiFiSync captures the Windows desktop across available displays and transfers the PNG to Android.
 
-If you want to run from Python instead of the EXE:
+### On Android
 
-```bash
-cd windows
-pip install -r requirements.txt
-python wifisync.py
+After the transfer:
+
+1. Tap the WiFiSync screenshot notification, or open WiFiSync and tap **Open Latest Screenshot**.
+2. Preview the image.
+3. Tap **Share** to open Android's standard Share sheet.
+4. Choose an app such as a messaging/chat application.
+5. Or tap **Save a Copy** and choose a destination.
+
+WiFiSync does not automatically control another application's chat UI.
+
+## Local network protocol
+
+### Keyboard
+
+```text
+TCP 50505
+UTF-8 line commands
 ```
 
-## Troubleshooting
+### Screenshot
 
-### Same-Wi-Fi connection fails
+```text
+TCP 50506
+4-byte big-endian PNG length
+PNG payload
+```
 
-Check that:
+The Android receiver:
 
-- the phone and laptop are on the same Wi-Fi
-- the Android app shows a valid local IP
-- WiFiSync is selected as the Android input method
-- the Wi-Fi network does not use client isolation
-- local firewall/network policy permits TCP `50505`
+- rejects invalid PNG signatures
+- rejects zero/invalid lengths
+- limits transfers to 30 MB
+- stores only the latest received screenshot in the application's cache
 
-### Bluetooth does not find the phone
+## Security
 
-Check that:
+This version is for a **trusted private LAN**.
 
-- Bluetooth is enabled
-- Android Bluetooth permissions were granted
-- WiFiSync is the selected Android input method
-- the phone supports BLE advertising/peripheral mode
+It does not currently implement authenticated pairing or encrypted screenshot transfer.
 
-### Enter works but Shift+Enter behaves differently
+Do not:
 
-Android applications decide how key events are interpreted. WiFiSync sends a genuine Enter key event with Shift metadata; an individual editor may choose different behavior.
+- expose TCP `50505` or `50506` to the public internet
+- port-forward these ports
+- use the screenshot feature for sensitive material on an untrusted/public Wi-Fi network
+
+A future release should add pairing/authentication and encrypted transport.
+
+## Bluetooth
+
+Bluetooth LE remains available for keyboard forwarding.
+
+Screenshot transfer requires Same-Wi-Fi mode because image payloads are much larger.
+
+## Important behavior
+
+Windows keyboard events are not globally suppressed.
+
+When keyboard forwarding is ON:
+
+```text
+key --> local Windows app
+    --> Android
+```
+
+When keyboard forwarding is OFF:
+
+```text
+key --> local Windows app only
+```
 
 ## Responsible use
 
-WiFiSync is designed as a normal local-device productivity utility. It does not contain process hiding, security-tool bypasses, anti-monitoring logic, or Windows-component impersonation.
+WiFiSync is a general local-device productivity utility.
 
-Use it only where external-device and software policies permit it.
+The screenshot feature is user-triggered and reports its result through the application's normal status/tray behavior. The project does not include hidden screen capture, process hiding, secure-browser bypasses, anti-monitoring logic, or software impersonation.
+
+
+## v6 reliability changes
+
+WiFiSync now starts in **Laptop only** mode.
+
+```text
+Laptop only
+Physical key -> Windows only
+```
+
+Press `F8`:
+
+```text
+Mirror to phone
+Physical key -> Windows
+             -> Android
+```
+
+Press `F8` again to return to Laptop only.
+
+WiFiSync intentionally does not suppress the physical Windows keystroke.
+
+### Enter
+
+Normal Enter now uses Android's editor-action API. If the focused field advertises
+Send, Done, Go, Search, Next, or Previous, WiFiSync calls that action directly.
+This is more reliable for chat composers than sending only a raw key code.
+
+If the editor does not advertise an action, WiFiSync tries the standard Send
+editor action and then falls back to a raw Enter event.
+
+### Shift+Enter
+
+Shift+Enter commits a real newline (`\n`) through Android's `InputConnection`,
+so it stays distinct from Send.
+
+### Screenshot transfer
+
+Windows now waits for an Android acknowledgement before reporting a screenshot
+transfer as successful.
+
+### Validation
+
+The GitHub Actions Android job now runs `lintDebug` before `assembleDebug`,
+which catches a broader class of manifest/API/resource issues before packaging.

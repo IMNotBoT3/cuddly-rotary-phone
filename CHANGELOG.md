@@ -1,19 +1,17 @@
 # Changelog
 
-## 4.0.0
+## 6.0.0
 
-- Branded Windows application as **WiFiSync**.
-- Windows executable output is `WiFiSync.exe`.
-- Added Windows file metadata:
-  - Product Name: WiFiSync
-  - File Description: Local Wi-Fi connectivity utility
-- Branded Android UI and input method as **WiFiSync**.
-- Kept the existing Android application ID for upgrade compatibility.
-- Added a single GitHub Actions release workflow that builds:
-  - `WiFiSync.apk`
-  - `WiFiSync.exe`
-- Added original application icon.
-- Preserved same-Wi-Fi and Bluetooth LE transports.
-- Preserved F8 forwarding toggle.
-- Preserved Enter and Shift+Enter handling.
-- No stealth, process hiding, Windows impersonation, or anti-monitoring behavior.
+- Fixed Android Enter handling using `performEditorAction`.
+- Enter now honors Send/Done/Go/Search/Next/Previous editor actions.
+- Added Send-action fallback before raw Enter.
+- Changed Shift+Enter to commit a real newline.
+- WiFiSync starts in Laptop-only mode.
+- Clarified F8 as Laptop-only ↔ Mirror-to-phone.
+- Added IPv4 validation.
+- Added screenshot receipt acknowledgement.
+- Windows reports screenshot success only after Android confirms the PNG.
+- Added Android lint validation to the release workflow.
+- Retained visible tray/status reporting.
+- Retained Same-Wi-Fi screenshot and keyboard transfer.
+- Retained optional Bluetooth LE keyboard forwarding.
