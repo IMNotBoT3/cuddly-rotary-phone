@@ -27,6 +27,7 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStreamReader
 import java.net.ServerSocket
+import java.net.InetSocketAddress
 import java.net.Socket
 import java.nio.charset.StandardCharsets
 import java.util.UUID
@@ -90,7 +91,10 @@ class KeyboardBridgeService : InputMethodService() {
     private fun startWifiServers() {
         wifiExecutor.execute {
             try {
-                commandServerSocket = ServerSocket(WIFI_PORT)
+                commandServerSocket = ServerSocket().apply {
+                    reuseAddress = true
+                    bind(InetSocketAddress(WIFI_PORT))
+                }
 
                 while (commandServerSocket?.isClosed == false) {
                     val client = commandServerSocket?.accept() ?: break
@@ -103,7 +107,10 @@ class KeyboardBridgeService : InputMethodService() {
 
         wifiExecutor.execute {
             try {
-                screenshotServerSocket = ServerSocket(WIFI_SCREENSHOT_PORT)
+                screenshotServerSocket = ServerSocket().apply {
+                    reuseAddress = true
+                    bind(InetSocketAddress(WIFI_SCREENSHOT_PORT))
+                }
 
                 while (screenshotServerSocket?.isClosed == false) {
                     val client = screenshotServerSocket?.accept() ?: break
@@ -119,6 +126,9 @@ class KeyboardBridgeService : InputMethodService() {
         wifiExecutor.execute {
             try {
                 socket.use { client ->
+                    client.keepAlive = true
+                    client.tcpNoDelay = true
+
                     val reader = BufferedReader(
                         InputStreamReader(
                             client.getInputStream(),
@@ -144,6 +154,8 @@ class KeyboardBridgeService : InputMethodService() {
             try {
                 socket.use { client ->
                     client.soTimeout = 15000
+                    client.keepAlive = true
+                    client.tcpNoDelay = true
 
                     val input = DataInputStream(
                         BufferedInputStream(client.getInputStream())
@@ -435,6 +447,10 @@ class KeyboardBridgeService : InputMethodService() {
 
     private fun handleCommand(command: String) {
         when {
+            command == "K:PING" -> {
+                // Keepalive heartbeat: intentionally no UI/input action.
+            }
+
             command.startsWith("T:") -> {
                 val text = command.substring(2)
                 currentInputConnection?.commitText(text, 1)

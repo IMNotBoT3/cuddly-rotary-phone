@@ -5,6 +5,7 @@ import ipaddress
 import socket
 import struct
 import threading
+import time
 from typing import Optional
 
 from PIL import Image, ImageDraw, ImageGrab
@@ -38,6 +39,82 @@ state_lock = threading.Lock()
 
 wifi_phone_ip: Optional[str] = None
 tray_icon = None
+
+class KeyboardConnection:
+    """Resilient Same-Wi-Fi keyboard channel with automatic reconnect."""
+
+    def __init__(self, host, port):
+        self.host = host
+        self.port = port
+        self.sock = None
+        self.lock = threading.RLock()
+        self.closed = False
+
+    def _configure_socket(self, sock):
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+        if hasattr(socket, "SIO_KEEPALIVE_VALS"):
+            try:
+                sock.ioctl(socket.SIO_KEEPALIVE_VALS, (1, 10_000, 3_000))
+            except OSError:
+                pass
+        sock.settimeout(None)
+
+    def connect(self):
+        with self.lock:
+            if self.closed:
+                raise RuntimeError("Connection manager has been closed.")
+            self._close_socket_locked()
+            sock = socket.create_connection((self.host, self.port), timeout=5)
+            self._configure_socket(sock)
+            self.sock = sock
+            return sock
+
+    def ensure_connected(self):
+        with self.lock:
+            if self.closed:
+                raise RuntimeError("Connection manager has been closed.")
+            if self.sock is None:
+                return self.connect()
+            return self.sock
+
+    def send_line(self, command, retries=6):
+        packet = (command + "\\n").encode("utf-8")
+        last_error = None
+        for attempt in range(retries):
+            with self.lock:
+                if self.closed:
+                    raise RuntimeError("WiFiSync connection is closed.")
+                try:
+                    sock = self.ensure_connected()
+                    sock.sendall(packet)
+                    return
+                except (OSError, ConnectionError) as exc:
+                    last_error = exc
+                    self._close_socket_locked()
+            time.sleep(min(0.4 * (attempt + 1), 2.0))
+        raise ConnectionError(
+            f"Could not restore the Wi-Fi keyboard connection after {retries} attempts: {last_error}"
+        )
+
+    def ping(self):
+        self.send_line("K:PING", retries=2)
+
+    def _close_socket_locked(self):
+        if self.sock is not None:
+            try: self.sock.shutdown(socket.SHUT_RDWR)
+            except OSError: pass
+            try: self.sock.close()
+            except OSError: pass
+            self.sock = None
+
+    def close(self):
+        with self.lock:
+            self.closed = True
+            self._close_socket_locked()
+
+
+keyboard_connection = None
 
 SPECIAL = {
     keyboard.Key.backspace: "K:BACKSPACE",
@@ -164,6 +241,82 @@ def stop_tray():
             pass
 
     tray_icon = None
+
+class KeyboardConnection:
+    """Resilient Same-Wi-Fi keyboard channel with automatic reconnect."""
+
+    def __init__(self, host, port):
+        self.host = host
+        self.port = port
+        self.sock = None
+        self.lock = threading.RLock()
+        self.closed = False
+
+    def _configure_socket(self, sock):
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+        if hasattr(socket, "SIO_KEEPALIVE_VALS"):
+            try:
+                sock.ioctl(socket.SIO_KEEPALIVE_VALS, (1, 10_000, 3_000))
+            except OSError:
+                pass
+        sock.settimeout(None)
+
+    def connect(self):
+        with self.lock:
+            if self.closed:
+                raise RuntimeError("Connection manager has been closed.")
+            self._close_socket_locked()
+            sock = socket.create_connection((self.host, self.port), timeout=5)
+            self._configure_socket(sock)
+            self.sock = sock
+            return sock
+
+    def ensure_connected(self):
+        with self.lock:
+            if self.closed:
+                raise RuntimeError("Connection manager has been closed.")
+            if self.sock is None:
+                return self.connect()
+            return self.sock
+
+    def send_line(self, command, retries=6):
+        packet = (command + "\\n").encode("utf-8")
+        last_error = None
+        for attempt in range(retries):
+            with self.lock:
+                if self.closed:
+                    raise RuntimeError("WiFiSync connection is closed.")
+                try:
+                    sock = self.ensure_connected()
+                    sock.sendall(packet)
+                    return
+                except (OSError, ConnectionError) as exc:
+                    last_error = exc
+                    self._close_socket_locked()
+            time.sleep(min(0.4 * (attempt + 1), 2.0))
+        raise ConnectionError(
+            f"Could not restore the Wi-Fi keyboard connection after {retries} attempts: {last_error}"
+        )
+
+    def ping(self):
+        self.send_line("K:PING", retries=2)
+
+    def _close_socket_locked(self):
+        if self.sock is not None:
+            try: self.sock.shutdown(socket.SHUT_RDWR)
+            except OSError: pass
+            try: self.sock.close()
+            except OSError: pass
+            self.sock = None
+
+    def close(self):
+        with self.lock:
+            self.closed = True
+            self._close_socket_locked()
+
+
+keyboard_connection = None
 
 
 def get_active_window_bbox():
@@ -356,10 +509,9 @@ def print_controls():
 
 
 async def wifi_mode():
-    global wifi_phone_ip
+    global wifi_phone_ip, keyboard_connection
 
     ip = input("\nEnter the phone IP shown in the Android app: ").strip()
-
     try:
         parsed = ipaddress.ip_address(ip)
         if parsed.version != 4:
@@ -369,17 +521,13 @@ async def wifi_mode():
         return
 
     wifi_phone_ip = ip
-
+    keyboard_connection = KeyboardConnection(ip, WIFI_PORT)
     print(f"\nConnecting keyboard channel to {ip}:{WIFI_PORT} ...")
-
     try:
-        sock = await asyncio.to_thread(
-            socket.create_connection,
-            (ip, WIFI_PORT),
-            5,
-        )
+        await asyncio.to_thread(keyboard_connection.connect)
     except Exception as exc:
         wifi_phone_ip = None
+        keyboard_connection = None
         print(f"\nWi-Fi connection failed: {exc}")
         print("\nCheck:")
         print("  - Laptop and phone are on the same Wi-Fi")
@@ -390,35 +538,45 @@ async def wifi_mode():
 
     print("\nCONNECTED OVER WI-FI")
     print(f"Screenshot receiver: {ip}:{SCREENSHOT_PORT}")
+    print("Automatic reconnect: ENABLED")
     print_controls()
-
     set_forwarding(False)
     start_tray()
     listener = start_listener()
 
+    heartbeat_stop = asyncio.Event()
+    async def heartbeat():
+        while not heartbeat_stop.is_set():
+            try:
+                await asyncio.wait_for(heartbeat_stop.wait(), timeout=12.0)
+                break
+            except asyncio.TimeoutError:
+                pass
+            try:
+                await asyncio.to_thread(keyboard_connection.ping)
+            except Exception as exc:
+                print(f"\n[Wi-Fi heartbeat reconnect pending: {exc}]")
+
+    heartbeat_task = asyncio.create_task(heartbeat())
     try:
         while True:
             command = await queue.get()
-
             if command == "__QUIT__":
                 break
-
-            packet = (command + "\n").encode("utf-8")
-
             try:
-                await asyncio.to_thread(sock.sendall, packet)
+                await asyncio.to_thread(keyboard_connection.send_line, command)
             except Exception as exc:
-                print(f"\nWi-Fi keyboard connection lost: {exc}")
-                break
+                print(f"\nWi-Fi keyboard connection could not be restored: {exc}")
+                print("WiFiSync is still running; it will retry on subsequent input.")
     finally:
+        heartbeat_stop.set()
+        try: await heartbeat_task
+        except Exception: pass
         listener.stop()
         stop_tray()
-
-        try:
-            sock.close()
-        except Exception:
-            pass
-
+        if keyboard_connection is not None:
+            keyboard_connection.close()
+        keyboard_connection = None
         wifi_phone_ip = None
 
 

@@ -1,4 +1,4 @@
-# WiFiSync 6
+# WiFiSync 7
 
 > Local Windows ↔ Android input and image-transfer utility over a trusted same-Wi-Fi network, with optional Bluetooth LE keyboard forwarding.
 
@@ -276,3 +276,22 @@ transfer as successful.
 
 The GitHub Actions Android job now runs `lintDebug` before `assembleDebug`,
 which catches a broader class of manifest/API/resource issues before packaging.
+
+
+## v7 connection stability
+
+The Same-Wi-Fi keyboard channel now survives many transient socket failures automatically.
+
+```text
+send key
+  ↓
+existing TCP socket
+  ├─ success → Android
+  └─ error → close stale socket → reconnect → retry command
+```
+
+WiFiSync also sends a no-op heartbeat roughly every 12 seconds. Both sides enable TCP
+keepalive and `TCP_NODELAY`, and Android uses reusable server sockets so quick restarts
+can rebind the ports more reliably.
+
+If Android gets a new Wi-Fi IP address, restart the Windows connection and enter the new IP.

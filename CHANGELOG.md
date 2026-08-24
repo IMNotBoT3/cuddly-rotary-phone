@@ -1,5 +1,20 @@
 # Changelog
 
+## 7.0.0
+
+- Reworked Same-Wi-Fi keyboard transport for automatic reconnection.
+- Added TCP keepalive on Windows and Android.
+- Added Windows keepalive tuning where supported.
+- Added `TCP_NODELAY` on both sides.
+- Added a 12-second no-op heartbeat (`K:PING`).
+- Added reconnect retries with backoff after transient socket failures.
+- `WinError 10053` and brief Wi-Fi drops no longer immediately terminate the bridge.
+- Android TCP server sockets use address reuse before bind.
+- Screenshot channel remains separate and acknowledged.
+- Enter and Shift+Enter fixes from v6 are retained.
+- F8 remains Laptop-only ↔ Mirror-to-phone.
+
+
 ## 6.0.0
 
 - Fixed Android Enter handling using `performEditorAction`.
