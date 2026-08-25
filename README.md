@@ -1,4 +1,4 @@
-# WiFiSync 7
+# WiFiSync 7.1
 
 > Local Windows ↔ Android input and image-transfer utility over a trusted same-Wi-Fi network, with optional Bluetooth LE keyboard forwarding.
 
@@ -295,3 +295,31 @@ keepalive and `TCP_NODELAY`, and Android uses reusable server sockets so quick r
 can rebind the ports more reliably.
 
 If Android gets a new Wi-Fi IP address, restart the Windows connection and enter the new IP.
+
+
+## 7.1 hotfix
+
+WiFiSync 7.0 had a Windows wire-protocol regression introduced during the
+automatic-reconnect rewrite.
+
+The sender accidentally transmitted:
+
+```text
+T:a\n
+```
+
+as the literal characters `T:a`, backslash, `n`.
+
+Android receives keyboard commands with `BufferedReader.readLine()`, so it
+waited forever for an actual LF byte. This is why `F8` could display
+**Phone mirror: ON** while typing still produced nothing on the phone.
+
+7.1 restores the correct protocol:
+
+```text
+T:a<LF>
+K:ENTER<LF>
+K:PING<LF>
+```
+
+The duplicate reconnect-class block from the v7 Windows source was also removed.

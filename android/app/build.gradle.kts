@@ -11,8 +11,8 @@ android {
         applicationId = "com.example.keyboardbridge"
         minSdk = 26
         targetSdk = 35
-        versionCode = 7
-        versionName = "7.0"
+        versionCode = 71
+        versionName = "7.1"
     }
 
     compileOptions {

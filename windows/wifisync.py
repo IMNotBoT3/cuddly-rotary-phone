@@ -79,7 +79,7 @@ class KeyboardConnection:
             return self.sock
 
     def send_line(self, command, retries=6):
-        packet = (command + "\\n").encode("utf-8")
+        packet = (command + "\n").encode("utf-8")
         last_error = None
         for attempt in range(retries):
             with self.lock:
@@ -242,81 +242,6 @@ def stop_tray():
 
     tray_icon = None
 
-class KeyboardConnection:
-    """Resilient Same-Wi-Fi keyboard channel with automatic reconnect."""
-
-    def __init__(self, host, port):
-        self.host = host
-        self.port = port
-        self.sock = None
-        self.lock = threading.RLock()
-        self.closed = False
-
-    def _configure_socket(self, sock):
-        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
-        if hasattr(socket, "SIO_KEEPALIVE_VALS"):
-            try:
-                sock.ioctl(socket.SIO_KEEPALIVE_VALS, (1, 10_000, 3_000))
-            except OSError:
-                pass
-        sock.settimeout(None)
-
-    def connect(self):
-        with self.lock:
-            if self.closed:
-                raise RuntimeError("Connection manager has been closed.")
-            self._close_socket_locked()
-            sock = socket.create_connection((self.host, self.port), timeout=5)
-            self._configure_socket(sock)
-            self.sock = sock
-            return sock
-
-    def ensure_connected(self):
-        with self.lock:
-            if self.closed:
-                raise RuntimeError("Connection manager has been closed.")
-            if self.sock is None:
-                return self.connect()
-            return self.sock
-
-    def send_line(self, command, retries=6):
-        packet = (command + "\\n").encode("utf-8")
-        last_error = None
-        for attempt in range(retries):
-            with self.lock:
-                if self.closed:
-                    raise RuntimeError("WiFiSync connection is closed.")
-                try:
-                    sock = self.ensure_connected()
-                    sock.sendall(packet)
-                    return
-                except (OSError, ConnectionError) as exc:
-                    last_error = exc
-                    self._close_socket_locked()
-            time.sleep(min(0.4 * (attempt + 1), 2.0))
-        raise ConnectionError(
-            f"Could not restore the Wi-Fi keyboard connection after {retries} attempts: {last_error}"
-        )
-
-    def ping(self):
-        self.send_line("K:PING", retries=2)
-
-    def _close_socket_locked(self):
-        if self.sock is not None:
-            try: self.sock.shutdown(socket.SHUT_RDWR)
-            except OSError: pass
-            try: self.sock.close()
-            except OSError: pass
-            self.sock = None
-
-    def close(self):
-        with self.lock:
-            self.closed = True
-            self._close_socket_locked()
-
-
-keyboard_connection = None
 
 
 def get_active_window_bbox():

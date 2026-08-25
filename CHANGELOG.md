@@ -1,5 +1,14 @@
 # Changelog
 
+## 7.1.0
+
+- Fixed the critical Wi-Fi keyboard line-delimiter regression from 7.0.
+- Commands now end with a real LF byte again.
+- Fixed F8 mirror mode toggling ON but sending no completed Android commands.
+- Removed an accidentally duplicated `KeyboardConnection` class block.
+- Retained automatic reconnect, keepalive, heartbeat, screenshot ACK, and Enter fixes.
+
+
 ## 7.0.0
 
 - Reworked Same-Wi-Fi keyboard transport for automatic reconnection.
